@@ -1,4 +1,5 @@
 import argparse
+from email import message
 import os
 import sys
 
@@ -42,16 +43,22 @@ def main():
     ]
 )
 
+    message = chat.choices[0].message
 
-    if not chat.choices or len(chat.choices) == 0:
-        raise RuntimeError("no choices in response")
+    if message.tool_calls:
+        tool_call = message.tool_calls[0]
 
-    # You can use print statements as follows for debugging, they'll be visible when running tests.
-    print("Logs from your program will appear here!", file=sys.stderr)
+        if tool_call.function.name == "Read":
+            import json
 
-    # TODO: Uncomment the following line to pass the first stage
-    print(chat.choices[0].message.content)
+            args = json.loads(tool_call.function.arguments)
+            file_path = args["file_path"]
 
+            with open(file_path, "r") as f:
+                print(f.read())
+
+    else:
+        print(message.content)
 
 if __name__ == "__main__":
     main()
