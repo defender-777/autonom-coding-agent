@@ -1,6 +1,5 @@
 import argparse
 import os
-import sys
 import json
 
 from openai import OpenAI
@@ -10,16 +9,16 @@ BASE_URL = os.getenv("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("-p", required=True)
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", required=True)
+    args = parser.parse_args()
 
     if not API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
-    # ✅ Define tools OUTSIDE the loop
+    # ✅ Advertise BOTH tools
     tools = [
         {
             "type": "function",
@@ -37,13 +36,33 @@ def main():
                     "required": ["file_path"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "Write",
+                "description": "Write content to a file",
+                "parameters": {
+                    "type": "object",
+                    "required": ["file_path", "content"],
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "The path of the file to write to"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The content to write to the file"
+                        }
+                    }
+                }
+            }
         }
     ]
 
-    # ✅ Initialize conversation memory
     messages = [{"role": "user", "content": args.p}]
 
-    # ✅ AGENT LOOP
+    # ✅ Agent loop
     while True:
 
         chat = client.chat.completions.create(
@@ -53,32 +72,48 @@ def main():
         )
 
         message = chat.choices[0].message
-
-        # Store assistant response
         messages.append(message)
 
-        # ✅ Check if model wants to use a tool
+        # ✅ If tools requested
         if message.tool_calls:
 
             for tool_call in message.tool_calls:
 
-                if tool_call.function.name == "Read":
+                tool_name = tool_call.function.name
+                tool_args = json.loads(tool_call.function.arguments)
 
-                    tool_args = json.loads(tool_call.function.arguments)
+                # -------------------
+                # READ TOOL
+                # -------------------
+                if tool_name == "Read":
                     file_path = tool_args["file_path"]
 
                     with open(file_path, "r") as f:
                         content = f.read()
 
-                    # Send tool result BACK to model
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "content": content
                     })
 
+                # -------------------
+                # WRITE TOOL
+                # -------------------
+                elif tool_name == "Write":
+                    file_path = tool_args["file_path"]
+                    content = tool_args["content"]
+
+                    with open(file_path, "w") as f:
+                        f.write(content)
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": "File written successfully"
+                    })
+
         else:
-            # ✅ Final answer — exit loop
             print(message.content)
             break
 
