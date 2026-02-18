@@ -1,6 +1,7 @@
 import argparse
 import os
 import json
+import subprocess
 
 from openai import OpenAI
 
@@ -18,7 +19,7 @@ def main():
 
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
-    # ✅ Advertise BOTH tools
+    # ✅ Advertise ALL tools
     tools = [
         {
             "type": "function",
@@ -28,10 +29,7 @@ def main():
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "file_path": {
-                            "type": "string",
-                            "description": "The path to the file to read"
-                        }
+                        "file_path": {"type": "string"}
                     },
                     "required": ["file_path"]
                 }
@@ -44,17 +42,25 @@ def main():
                 "description": "Write content to a file",
                 "parameters": {
                     "type": "object",
-                    "required": ["file_path", "content"],
                     "properties": {
-                        "file_path": {
-                            "type": "string",
-                            "description": "The path of the file to write to"
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": "The content to write to the file"
-                        }
-                    }
+                        "file_path": {"type": "string"},
+                        "content": {"type": "string"}
+                    },
+                    "required": ["file_path", "content"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "Bash",
+                "description": "Execute a shell command",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string"}
+                    },
+                    "required": ["command"]
                 }
             }
         }
@@ -62,7 +68,7 @@ def main():
 
     messages = [{"role": "user", "content": args.p}]
 
-    # ✅ Agent loop
+    # ✅ AGENT LOOP
     while True:
 
         chat = client.chat.completions.create(
@@ -74,7 +80,6 @@ def main():
         message = chat.choices[0].message
         messages.append(message)
 
-        # ✅ If tools requested
         if message.tool_calls:
 
             for tool_call in message.tool_calls:
@@ -82,9 +87,9 @@ def main():
                 tool_name = tool_call.function.name
                 tool_args = json.loads(tool_call.function.arguments)
 
-                # -------------------
+                # -------------------------
                 # READ TOOL
-                # -------------------
+                # -------------------------
                 if tool_name == "Read":
                     file_path = tool_args["file_path"]
 
@@ -97,9 +102,9 @@ def main():
                         "content": content
                     })
 
-                # -------------------
+                # -------------------------
                 # WRITE TOOL
-                # -------------------
+                # -------------------------
                 elif tool_name == "Write":
                     file_path = tool_args["file_path"]
                     content = tool_args["content"]
@@ -111,6 +116,34 @@ def main():
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "content": "File written successfully"
+                    })
+
+                # -------------------------
+                # BASH TOOL
+                # -------------------------
+                elif tool_name == "Bash":
+                    command = tool_args["command"]
+
+                    try:
+                        result = subprocess.run(
+                            command,
+                            shell=True,
+                            capture_output=True,
+                            text=True
+                        )
+
+                        output = result.stdout if result.stdout else result.stderr
+
+                        if not output:
+                            output = "Command executed successfully."
+
+                    except Exception as e:
+                        output = str(e)
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": output
                     })
 
         else:
